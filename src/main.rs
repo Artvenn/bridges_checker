@@ -4,10 +4,26 @@ use std::{
     io::{ErrorKind, Write}
 };
 
+enum BridgesType {
+    Obfs4,
+    Snowflake,
+    Proxy
+}
+
+const BRIDGE_TYPE: BridgesType = BridgesType::Proxy;
+const CONN_TIMEOUT_MS: u64 = 200;
+
 fn main() {
-    let bridges = include_str!("../bridges-obfs4");
+    let obfs4_bridges = include_str!("../bridges-obfs4");
+    let snowflake_bridges = include_str!("../bridges-snowflake-ipv4");
+    let proxy_list = include_str!("../socks5.txt");
     const WORKING_PATH: &str = "./working_bridges.txt";
-    let working = get_working(bridges);
+
+    let working  =  match BRIDGE_TYPE {
+        BridgesType::Obfs4 => get_working_obfs4(obfs4_bridges),
+        BridgesType::Snowflake => get_working_snowflake(snowflake_bridges),
+        BridgesType::Proxy => get_working_proxy(proxy_list)
+    };
 
     if working.is_empty() {
         println!("There is no working bridges :(");
@@ -38,7 +54,7 @@ fn main() {
     file.flush().unwrap();
 }
 
-fn get_working(bridges: &str) -> Vec<&str>{
+fn get_working_obfs4(bridges: &str) -> Vec<&str> {
     bridges.trim().lines().filter_map(|row| {
         let (ip_str, port) = row
             .trim()
@@ -57,6 +73,30 @@ fn get_working(bridges: &str) -> Vec<&str>{
         } else {
             None
         }
+    }).collect()
+}
+
+fn get_working_snowflake(bridges: &str) -> Vec<&str> {
+    bridges.trim().lines().filter(|row| {
+        let ip = Ipv4Addr::from_str(row)
+            .expect("ip addr parse error.\nCant parse: {ip}");
+        
+        let sock_443 = SocketAddr::new(IpAddr::V4(ip), 443);
+        let sock_80 = SocketAddr::new(IpAddr::V4(ip), 80);
+
+        check_conn(&sock_443, Duration::from_millis(CONN_TIMEOUT_MS))
+        || check_conn(&sock_80, Duration::from_millis(CONN_TIMEOUT_MS))
+    }).collect()
+}
+
+fn get_working_proxy(proxies: &str) -> Vec<&str> {
+    proxies.trim().lines().filter(|row| {
+        let (ip, port) = row.split_once(':').unwrap();
+        let ip = Ipv4Addr::from_str(ip)
+            .expect("ip addr parse error.\nCant parse: {ip}");
+        let port: u16 = port.parse().unwrap();
+        let sock = SocketAddr::new(IpAddr::V4(ip), port);
+        check_conn(&sock, Duration::from_millis(CONN_TIMEOUT_MS))
     }).collect()
 }
 
