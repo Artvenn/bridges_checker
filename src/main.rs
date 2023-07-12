@@ -1,28 +1,29 @@
 use std::{
     net::{SocketAddr, TcpStream, Ipv4Addr, IpAddr, Shutdown},
     str::{FromStr}, time::Duration, fs::{File}, 
-    io::{ErrorKind, Write}
+    io::{ErrorKind, Write, Read}, process::{Command}
 };
 
-enum BridgesType {
-    Obfs4,
-    Snowflake,
-    Proxy
-}
+use config::{Config, FileType};
 
-const BRIDGE_TYPE: BridgesType = BridgesType::Proxy;
-const CONN_TIMEOUT_MS: u64 = 200;
+mod config;
 
 fn main() {
-    let obfs4_bridges = include_str!("../bridges-obfs4");
-    let snowflake_bridges = include_str!("../bridges-snowflake-ipv4");
-    let proxy_list = include_str!("../socks5.txt");
+    let config = Config::new();
+    let default_obfs4 = include_str!("../bridges-obfs4");
     const WORKING_PATH: &str = "./working_bridges.txt";
 
-    let working  =  match BRIDGE_TYPE {
-        BridgesType::Obfs4 => get_working_obfs4(obfs4_bridges),
-        BridgesType::Snowflake => get_working_snowflake(snowflake_bridges),
-        BridgesType::Proxy => get_working_proxy(proxy_list)
+    let working  =  match &config.file {
+        FileType::Obfs4(path) => {
+            let mut file = File::open(path)
+                .expect(format!("Cant open filepath: {}", path).as_str());
+
+            let mut file_content = String::new();
+            file.read_to_string(&mut file_content).expect("Cant read file with addresses");
+            get_working_obfs4(&file_content, &config)
+        },
+        FileType::Proxy(path) => get_working_proxy(&path, &config),
+        FileType::DefaultObfs4 => get_working_obfs4(default_obfs4, &config)
     };
 
     if working.is_empty() {
@@ -37,9 +38,9 @@ fn main() {
         Err(err) => match err.kind() {
             ErrorKind::NotFound => { 
                 File::create(WORKING_PATH)
-                    .expect("cant create file: {WORKING_PATH}") 
+                    .expect(format!("cant create file: {}", WORKING_PATH).as_str())
             },
-            _ => panic!("cant open file: {WORKING_PATH}")
+            err => panic!("cant open file: {}\n{}", WORKING_PATH, err)
         }
     };
 
@@ -52,9 +53,12 @@ fn main() {
     }
 
     file.flush().unwrap();
+    println!("Working bridges was saved in working_bridges.txt, located in executable directory");
+    println!("Press enter to exit");
+    let _ = Command::new("pause").status();
 }
 
-fn get_working_obfs4(bridges: &str) -> Vec<&str> {
+fn get_working_obfs4<'a>(bridges: &'a str, config: &Config) -> Vec<String> {
     bridges.trim().lines().filter_map(|row| {
         let (ip_str, port) = row
             .trim()
@@ -68,35 +72,26 @@ fn get_working_obfs4(bridges: &str) -> Vec<&str> {
         let port = port.parse().unwrap_or(0);
         let sock = SocketAddr::new(IpAddr::V4(ip), port);
 
-        if check_conn(&sock, Duration::from_secs(1)) {
-            Some(row)
+        if check_conn(&sock, config.conn_timeout) {
+            Some(row.to_owned())
         } else {
             None
         }
     }).collect()
 }
 
-fn get_working_snowflake(bridges: &str) -> Vec<&str> {
-    bridges.trim().lines().filter(|row| {
-        let ip = Ipv4Addr::from_str(row)
-            .expect("ip addr parse error.\nCant parse: {ip}");
-        
-        let sock_443 = SocketAddr::new(IpAddr::V4(ip), 443);
-        let sock_80 = SocketAddr::new(IpAddr::V4(ip), 80);
-
-        check_conn(&sock_443, Duration::from_millis(CONN_TIMEOUT_MS))
-        || check_conn(&sock_80, Duration::from_millis(CONN_TIMEOUT_MS))
-    }).collect()
-}
-
-fn get_working_proxy(proxies: &str) -> Vec<&str> {
-    proxies.trim().lines().filter(|row| {
+fn get_working_proxy<'a>(proxies: &'a str, config: &Config) -> Vec<String> {
+    proxies.trim().lines().filter_map(|row| {
         let (ip, port) = row.split_once(':').unwrap();
         let ip = Ipv4Addr::from_str(ip)
             .expect("ip addr parse error.\nCant parse: {ip}");
         let port: u16 = port.parse().unwrap();
         let sock = SocketAddr::new(IpAddr::V4(ip), port);
-        check_conn(&sock, Duration::from_millis(CONN_TIMEOUT_MS))
+        if check_conn(&sock, config.conn_timeout) {
+            Some(row.to_owned())
+        } else {
+            None
+        }
     }).collect()
 }
 
