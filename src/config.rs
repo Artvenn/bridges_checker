@@ -1,5 +1,4 @@
-use std::{time::Duration};
-
+use std::time::Duration;
 use clap::{command, arg};
 
 const DEFAULT_CONN_TIMEOUT: u64 = 1000;
@@ -7,6 +6,7 @@ const DEFAULT_CONN_TIMEOUT: u64 = 1000;
 #[derive(Debug)]
 pub enum FileType {
     Obfs4(String),
+    Vanilla(String),
     Proxy(String),
     DefaultObfs4
 }
@@ -21,7 +21,7 @@ impl Config {
     pub fn new() -> Self {
         let matches =  command!()
             .arg(
-                arg!(--filetype <filetype>  "Set file type: obfs4, proxy, default")
+                arg!(--filetype <filetype>  "Set file type: obfs4, vanilla, proxy, default")
                 .required(true)
             )
             .arg(
@@ -47,10 +47,16 @@ impl Config {
                     }
                     "proxy" => {
                         match file_path {
-                            None => panic!("missing filepath for obfs4 filetype"),
+                            None => panic!("missing filepath for proxy filetype"),
                             Some(file_path) => FileType::Proxy(file_path.clone())
                         }
                     }
+                    "vanilla" => {
+                        match file_path {
+                            None => panic!("missing filepath for vanilla filetype"),
+                            Some(file_path) => FileType::Vanilla(file_path.clone())
+                        }
+                    },
                     _ => panic!("Unknown filetype: {}", file_type)
                 }
             },

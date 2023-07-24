@@ -1,7 +1,7 @@
 use std::{
     net::{SocketAddr, TcpStream, Ipv4Addr, IpAddr, Shutdown},
-    str::{FromStr}, time::Duration, fs::{File}, 
-    io::{ErrorKind, Write, Read}, process::{Command}
+    str::FromStr, time::Duration, fs::File, 
+    io::{ErrorKind, Write, Read}, process::Command
 };
 
 use config::{Config, FileType};
@@ -20,10 +20,18 @@ fn main() {
 
             let mut file_content = String::new();
             file.read_to_string(&mut file_content).expect("Cant read file with addresses");
-            get_working_obfs4(&file_content, &config)
+            get_working_bridges(&file_content, &config)
+        },
+        FileType::Vanilla(path) => {
+            let mut file = File::open(path)
+                .expect(format!("Cant open filepath: {}", path).as_str());
+
+            let mut file_content = String::new();
+            file.read_to_string(&mut file_content).expect("Cant read file with addresses");
+            get_working_bridges(&file_content, &config)
         },
         FileType::Proxy(path) => get_working_proxy(&path, &config),
-        FileType::DefaultObfs4 => get_working_obfs4(default_obfs4, &config)
+        FileType::DefaultObfs4 => get_working_bridges(default_obfs4, &config)
     };
 
     if working.is_empty() {
@@ -55,15 +63,21 @@ fn main() {
     file.flush().unwrap();
     println!("Working bridges was saved in working_bridges.txt, located in executable directory");
     println!("Press enter to exit");
-    let _ = Command::new("pause").status();
+    let _ = Command::new("pause").status().unwrap();
 }
 
-fn get_working_obfs4<'a>(bridges: &'a str, config: &Config) -> Vec<String> {
+fn get_working_bridges<'a>(bridges: &'a str, config: &Config) -> Vec<String> {
+    let start_pos = match config.file {
+        FileType::Obfs4(_) => 1,
+        FileType::Vanilla(_) => 0,
+        _ => panic!("get_working_bridge() expect FileType vanilla or obfs4")
+    };
+
     bridges.trim().lines().filter_map(|row| {
         let (ip_str, port) = row
             .trim()
             .split(' ')
-            .nth(1).expect("Cant get ip:port section")
+            .nth(start_pos).expect("Cant get ip:port section")
             .split_once(':').expect("ip:port section must contain semicolon between");
 
         let ip = Ipv4Addr::from_str(ip_str)
